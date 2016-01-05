@@ -1,3 +1,6 @@
+variable "GIT_COMMIT" {}
+variable "GIT_BRANCH" {}
+
 provider "aws" {
     region = "us-west-2"
 }
@@ -17,6 +20,7 @@ resource "aws_instance" "DEVOPS-73-bamboo-server" {
             "wget -O - https://repo.saltstack.com/apt/ubuntu/14.04/amd64/latest/SALTSTACK-GPG-KEY.pub | sudo apt-key add -",
             "echo 'deb http://repo.saltstack.com/apt/ubuntu/14.04/amd64/latest trusty main' | sudo tee --append /etc/apt/sources.list.d/saltstack.list > /dev/null",
             "sudo apt-get update",
+            "sudo apt-get install -y git",
             "sudo apt-get install -y salt-common",
             "sudo apt-get install -y salt-minion",
             "sudo apt-get install -y salt-ssh",
@@ -26,25 +30,24 @@ resource "aws_instance" "DEVOPS-73-bamboo-server" {
 
     provisioner "remote-exec" {
         inline = [
-            "mkdir -p /home/ubuntu/stage/etc",
-            "mkdir -p /home/ubuntu/stage/srv",
+            "git init bamboo-infrastructure",
+            "(cd bamboo-infrastructure && git config receive.denyCurrentBranch ignore)"
         ]
     }
 
-    provisioner "file" {
-        source = "etc/"
-        destination = "/home/ubuntu/stage/etc"
-    }
-
-    provisioner "file" {
-        source = "srv/"
-        destination = "/home/ubuntu/stage/srv"
+    provisioner "local-exec" {
+        command = "GIT_SSH_COMMAND=\"ssh -i bamboo-ci.pem\" git push --force ubuntu@${aws_instance.DEVOPS-73-bamboo-server.public_ip}:bamboo-infrastructure/ ${var.GIT_BRANCH}"
     }
 
     provisioner "remote-exec" {
         inline = [
-            "sudo cp /home/ubuntu/stage/etc/salt/minion.d/minion.conf /etc/salt/minion.d/",
-            "sudo cp -r /home/ubuntu/stage/srv/* /srv/",
+            "(cd bamboo-infrastructure && git reset --hard ${var.GIT_COMMIT})"
+        ]
+    }
+
+    provisioner "remote-exec" {
+        inline = [
+            "sudo cp /home/ubuntu/bamboo-infrastructure/etc/salt/minion.d/minion.conf /etc/salt/minion.d/",
             "sudo salt-call --local state.highstate"
         ]
     }
