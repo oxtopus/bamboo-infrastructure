@@ -15,6 +15,9 @@ variable "SECURITY_GROUP" {
 variable "REGION" {
     default = "us-west-2"
 }
+variable "AVAILABILITY_ZONE" {
+    default = "us-west-2a"
+}
 variable "AWS_KEYPAIR" {
     default = "bamboo-ci.pem"
 }
@@ -23,23 +26,74 @@ provider "aws" {
     region = "${var.REGION}"
 }
 
+resource "aws_ebs_volume" "bamboo-home" {
+    availability_zone = "${var.AVAILABILITY_ZONE}"
+    size = 64
+    tags {
+        Name = "Bamboo Home"
+    }
+
+    lifecycle {
+        prevent_destroy = true
+    }
+}
+
+resource "aws_ebs_volume" "docker-home" {
+    availability_zone = "${var.AVAILABILITY_ZONE}"
+    size = 64
+    tags {
+        Name = "Docker Home"
+    }
+
+    lifecycle {
+        prevent_destroy = true
+    }
+}
+
 resource "aws_instance" "bamboo-server" {
     ami = "${var.AMI}"
     instance_type = "${var.INSTANCE_TYPE}"
     key_name = "${var.KEY_NAME}"
     security_groups = ["${var.SECURITY_GROUP}"]
+    availability_zone = "${var.AVAILABILITY_ZONE}"
 
-    # Connect to remote instance as "ubuntu" using the specified AWS keypair
-    connection {
-        user = "ubuntu"
-        key_file = "${var.AWS_KEYPAIR}"
-        timeout = "1m"
+    tags {
+        Name = "Bamboo Server"
     }
 
     # Write out public ip address for later use
     provisioner "local-exec" {
         command = "echo ${aws_instance.bamboo-server.public_ip} > public_ip.txt"
     }
+}
+
+resource "aws_volume_attachment" "bamboo-home-attachment" {
+    device_name = "/dev/xvdh"
+    volume_id = "${aws_ebs_volume.bamboo-home.id}"
+    instance_id = "${aws_instance.bamboo-server.id}"
+}
+
+resource "aws_volume_attachment" "docker-home-attachment" {
+    device_name = "/dev/xvdi"
+    volume_id = "${aws_ebs_volume.docker-home.id}"
+    instance_id = "${aws_instance.bamboo-server.id}"
+}
+
+# Bootstrap salt AFTER instance is created, and volume attached
+resource "null_resource" "bamboo-server" {
+    depends_on = [
+        "aws_volume_attachment.bamboo-home-attachment",
+        "aws_volume_attachment.docker-home-attachment",
+    ]
+
+    # Connect to remote instance as "ubuntu" using the specified AWS keypair
+    connection {
+        host = "${aws_instance.bamboo-server.public_ip}"
+        user = "ubuntu"
+        key_file = "${var.AWS_KEYPAIR}"
+        timeout = "1m"
+    }
+
 
     # Install salt stack dependencies
     provisioner "remote-exec" {
@@ -78,7 +132,7 @@ resource "aws_instance" "bamboo-server" {
     # Run salt configuration management
     provisioner "remote-exec" {
         inline = [
-            "sudo cp /home/ubuntu/bamboo-infrastructure/etc/salt/minion.d/minion.conf /etc/salt/minion.d/",
+            "sudo ln -s  /home/ubuntu/bamboo-infrastructure/etc/salt/minion.d/minion.conf /etc/salt/minion.d/minion.conf",
             "sudo salt-call --local state.highstate"
         ]
     }
