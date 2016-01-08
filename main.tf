@@ -28,7 +28,9 @@ provider "aws" {
 
 resource "aws_ebs_volume" "bamboo-home" {
     availability_zone = "${var.AVAILABILITY_ZONE}"
-    size = 64
+    size = 256
+    type= "gp2"
+
     tags {
         Name = "Bamboo Home"
     }
@@ -40,7 +42,9 @@ resource "aws_ebs_volume" "bamboo-home" {
 
 resource "aws_ebs_volume" "docker-home" {
     availability_zone = "${var.AVAILABILITY_ZONE}"
-    size = 64
+    size = 256
+    type= "gp2"
+
     tags {
         Name = "Docker Home"
     }
@@ -79,8 +83,8 @@ resource "aws_volume_attachment" "docker-home-attachment" {
     instance_id = "${aws_instance.bamboo-server.id}"
 }
 
-# Bootstrap salt AFTER instance is created, and volume attached
 resource "null_resource" "bamboo-server" {
+    # Bootstrap salt AFTER instance is created, and volume attached
     depends_on = [
         "aws_volume_attachment.bamboo-home-attachment",
         "aws_volume_attachment.docker-home-attachment",
@@ -93,7 +97,6 @@ resource "null_resource" "bamboo-server" {
         key_file = "${var.AWS_KEYPAIR}"
         timeout = "1m"
     }
-
 
     # Install salt stack dependencies
     provisioner "remote-exec" {
@@ -129,7 +132,11 @@ resource "null_resource" "bamboo-server" {
         ]
     }
 
-    # Run salt configuration management
+    /*
+    Run salt configuration management.  At this point, all remaining
+    system-level configuration is handled by salt.  See srv/salt/top.sls and
+    src/formulas/* for details.
+    */
     provisioner "remote-exec" {
         inline = [
             "sudo ln -s  /home/ubuntu/bamboo-infrastructure/etc/salt/minion.d/minion.conf /etc/salt/minion.d/minion.conf",

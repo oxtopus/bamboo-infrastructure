@@ -1,4 +1,5 @@
 base:
   '*':
-    - bamboo
+    - storage
     - docker
+    - containers
